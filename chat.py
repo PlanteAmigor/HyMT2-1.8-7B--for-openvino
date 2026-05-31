@@ -54,6 +54,24 @@ T_EN = "Translate the following text into {target}. Note that you should only ou
 def has_chinese(text):
     return any('\u4e00' <= c <= '\u9fff' for c in text[:30])
 
+def read_multiline(prompt=">>> "):
+    """读取用户输入，支持多行：输入三个双引号进入多行模式，再输入三个双引号结束。"""
+    line = input(prompt).strip()
+    # 多行模式：以 """ 开始
+    if line == '"""':
+        lines = []
+        while True:
+            try:
+                l = input()
+            except EOFError:
+                break
+            if l.strip() == '"""':
+                break
+            lines.append(l)
+        return "\n".join(lines)
+    # 普通单行模式
+    return line
+
 # ── 加载模型 ──
 _model_name = os.path.basename(os.path.normpath(OV_PATH))
 print(TR(f"加载 Hy-MT2 {_model_name} ...", f"Loading Hy-MT2 {_model_name} ..."), end=" ", flush=True)
@@ -85,6 +103,23 @@ def translate(text, target_lang):
         attn_mask = np.concatenate([attn_mask, np.array([[1]], dtype=np.int64)], axis=1)
     return tokenizer.decode(generated, skip_special_tokens=True)
 
+def translate_stream(text, target_lang):
+    """流式生成器，逐个 token 产出翻译结果。"""
+    prompt = T_ZH.format(target=target_lang, text=text) if has_chinese(text) else T_EN.format(target=target_lang, text=text)
+    messages = [{"role": "user", "content": prompt}]
+    full = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    inputs = tokenizer(full, return_tensors="np", padding=True)
+    input_ids = inputs["input_ids"].astype(np.int64)
+    attn_mask = inputs["attention_mask"].astype(np.int64)
+    for _ in range(512):
+        outputs = compiled([input_ids, attn_mask])
+        next_id = int(np.argmax(list(outputs.values())[0][0, -1, :]))
+        if next_id == EOS_TOKEN:
+            break
+        yield next_id
+        input_ids = np.concatenate([input_ids, np.array([[next_id]], dtype=np.int64)], axis=1)
+        attn_mask = np.concatenate([attn_mask, np.array([[1]], dtype=np.int64)], axis=1)
+
 # ── 主循环 ──
 def main():
     _dev = "GPU" if "GPU" in ov.Core().available_devices else "CPU"
@@ -103,48 +138,55 @@ def main():
 
     while True:
         try:
-            line = input(">>> ").strip()
+            text = read_multiline(">>> ")
         except (EOFError, KeyboardInterrupt):
             print()
             break
 
-        if not line:
+        if not text:
             continue
-        if line in ("/exit", "exit", TR("退出", "exit")):
+        if text in ("/exit", "exit", TR("退出", "exit")):
             break
-        if line in ("/help", "help", TR("帮助", "help")):
+        if text in ("/help", "help", TR("帮助", "help")):
             print("  " + TR("用法：", "Usage:"))
             print("    " + TR("今天天气真好", "Good weather today") + "          → " + TR("自动→英语", "auto→English"))
             print("    Hello world           → " + TR("自动→中文", "auto→Chinese"))
             print("    //en " + TR("你好", "Hello") + "             → " + TR("强制译英", "force English"))
             print("    //zh " + TR("Hello", "Hello") + "          → " + TR("强制译中", "force Chinese"))
+            print('    """                   → ' + TR("多行输入", "multi-line input"))
             print("    /exit                 " + TR("退出", "exit"))
             print()
             continue
 
         force_target = None
-        if line.startswith("//en "):
+        if text.startswith("//en "):
             force_target = TR("英语", "English")
-            line = line[5:]
-        elif line.startswith("//zh "):
+            text = text[5:]
+        elif text.startswith("//zh "):
             force_target = TR("中文", "Chinese")
-            line = line[5:]
-        elif line.startswith("//"):
+            text = text[5:]
+        elif text.startswith("//"):
             print("  ⚠ " + TR("未知指令，可用 //en 或 //zh", "Unknown command, use //en or //zh"))
             continue
 
         if force_target:
             target = force_target
-        elif has_chinese(line):
+        elif has_chinese(text):
             target = TR("英语", "English")
         else:
             target = TR("中文", "Chinese")
 
         print(f"  → {target}  (temp=0)", flush=True)
         t0 = time.time()
-        result = translate(line, target)
+        # 流式输出
+        sys.stdout.write("  ")
+        sys.stdout.flush()
+        for token_id in translate_stream(text, target):
+            chunk = tokenizer.decode([token_id], skip_special_tokens=True)
+            sys.stdout.write(chunk)
+            sys.stdout.flush()
         elapsed = time.time() - t0
-        print(f"  {result}")
+        print()
         print(f"  [{elapsed:.1f}s]")
         print()
 
