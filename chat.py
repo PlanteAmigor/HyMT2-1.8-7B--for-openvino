@@ -10,6 +10,7 @@ Auto language detection: Chinese→English, otherwise→Chinese
 import os
 import sys
 import time
+import select
 import logging
 import readline
 import numpy as np
@@ -55,22 +56,25 @@ def has_chinese(text):
     return any('\u4e00' <= c <= '\u9fff' for c in text[:30])
 
 def read_multiline(prompt=">>> "):
-    """读取用户输入，支持多行：输入三个双引号进入多行模式，再输入三个双引号结束。"""
-    line = input(prompt).strip()
-    # 多行模式：以 """ 开始
-    if line == '"""':
-        lines = []
+    """读取用户输入，自动检测多行粘贴（保留 readline 行编辑和历史）。"""
+    first = input(prompt)
+    if not first:
+        return ""
+    first = first.rstrip('\n')
+
+    # 自动检测：如果 stdin 缓冲区还有更多行（粘贴的多行文本），全部读入
+    lines = [first]
+    try:
         while True:
-            try:
-                l = input()
-            except EOFError:
+            r, _, _ = select.select([sys.stdin], [], [], 0.05)
+            if not r:
                 break
-            if l.strip() == '"""':
-                break
-            lines.append(l)
-        return "\n".join(lines)
-    # 普通单行模式
-    return line
+            more = input()
+            lines.append(more)  # 保留空行（段落分隔）
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+    return "\n".join(lines)
 
 # ── 加载模型 ──
 _model_name = os.path.basename(os.path.normpath(OV_PATH))
@@ -153,7 +157,7 @@ def main():
             print("    Hello world           → " + TR("自动→中文", "auto→Chinese"))
             print("    //en " + TR("你好", "Hello") + "             → " + TR("强制译英", "force English"))
             print("    //zh " + TR("Hello", "Hello") + "          → " + TR("强制译中", "force Chinese"))
-            print('    """                   → ' + TR("多行输入", "multi-line input"))
+            print("    " + TR("直接粘贴多行文本 → 自动合并翻译", "Paste multi-line text → auto merge") + "  ")
             print("    /exit                 " + TR("退出", "exit"))
             print()
             continue
