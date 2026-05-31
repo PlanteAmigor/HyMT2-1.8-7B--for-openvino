@@ -30,6 +30,7 @@ class HunYuanOVWrapper(torch.nn.Module):
     """
     Wrapper 绕过 HunYuan 模型的 torch.vmap 因果掩码（无法被 jit.trace 追踪）。
     手动构造 4D causal mask 替代。
+    注：HunYuan 的 decoder layer 不返回 K/V，无法使用 KV Cache。
     """
     def __init__(self, model):
         super().__init__()

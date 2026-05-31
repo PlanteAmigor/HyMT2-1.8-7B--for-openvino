@@ -91,7 +91,7 @@ python convert_to_ov.py --model 7B --output 7B-ov --weight-format int8
 
 > **转换原理**：模型使用了 `torch.vmap` 构建因果掩码，该操作无法被 `torch.jit.trace` 追踪。脚本通过自定义包装器手动构造 4D causal mask 绕过此限制。
 >
-> **KV Cache**：转换时设置了 `use_cache=False`，因为 `DynamicCache/past_key_values` 等运行时对象无法被 `jit.trace` 追踪。这会导致生成长文本时每步重新计算全部注意力（约 2-3 倍开销）。短文本翻译（< 50 tokens）几乎不受影响。如需支持长文本生成，可自行在 wrapper 中手动传递 KV 张量。
+> **KV Cache**：HunYuan 的 decoder layer 不返回 K/V（仅返回 hidden_states），因此无法实现 KV Cache。每步推理需重新计算全部注意力，这是模型架构决定的。
 
 ### 3. 运行
 
@@ -237,8 +237,8 @@ A: 不支持。1.8B FP32 模型约 3.4GB，超过 NPU 内存限制。
 **Q: 支持流式翻译吗？**
 A: 终端和 API 均支持流式逐 token 输出。
 
-**Q: 转换后的模型为什么没有 KV Cache？影响大吗？**
-A: 因为 `DynamicCache` 是运行时对象，`torch.jit.trace` 无法追踪。转换时设置了 `use_cache=False`，每步重新计算全部注意力。对于翻译场景（短文本 < 50 tokens），影响很小。如需支持长文本生成，可在 wrapper 中手动传递 KV 张量。
+**Q: 转换后的模型有 KV Cache 吗？影响大吗？**
+A: 没有。HunYuan 的 decoder layer 不返回 K/V（仅返回 hidden_states），这是模型架构决定，无法实现 KV Cache。对于翻译场景（短文本 < 50 tokens），影响很小。
 
 ---
 
