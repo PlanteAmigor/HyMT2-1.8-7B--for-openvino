@@ -111,6 +111,19 @@ def convert_model(model_path, output_path, weight_format):
     ov.save_model(ov_model, model_xml)
     bin_size = os.path.getsize(model_xml.replace(".xml", ".bin")) / (1024 * 1024)
     print(f"\n{TR('保存到', 'Saved to')}: {output_path}  ({bin_size:.0f} MB)")
+
+    # ── 复制 tokenizer 和配置文件 ──
+    config_extras = ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json",
+                     "chat_template.jinja", "config.json", "generation_config.json"]
+    copied = 0
+    for fname in config_extras:
+        src = os.path.join(model_path, fname)
+        if os.path.isfile(src):
+            dst = os.path.join(output_path, fname)
+            with open(src, "rb") as f_src, open(dst, "wb") as f_dst:
+                f_dst.write(f_src.read())
+            copied += 1
+    print(f"  {TR('复制配置/词表文件', 'Copied config/tokenizer files')}: {copied}/{len(config_extras)}")
     print(TR("完成!", "Done!"))
 
 
