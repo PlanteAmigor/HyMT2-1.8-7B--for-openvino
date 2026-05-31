@@ -1,6 +1,8 @@
 .venv/
 1.8B/
 1.8B-ov/
+1.8B-int4-ov/
+1.8B-fp32-ov/
 __pycache__/
 *.pyc
 .DS_Store
