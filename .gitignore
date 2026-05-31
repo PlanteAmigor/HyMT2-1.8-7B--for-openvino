@@ -1,0 +1,6 @@
+.venv/
+1.8B/
+1.8B-ov/
+__pycache__/
+*.pyc
+.DS_Store
